@@ -46,6 +46,12 @@ HEADING = re.compile(r"^\s*#{1,6}\s")
 COMMENT_LINE = re.compile(r"^\s*(#|//|--)\s?(.*)$")
 COMMENT_TAIL = re.compile(r"(?<![:\w])\s(#|//)\s+(\S.*)$")
 QUOTED = re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”")
+LAYER = re.compile(r"^##\s+(接下来|已完成)\s*$")
+TIP_HEAD = re.compile(r"^\s*[-*+]\s+\*\*(待确认|下一步|后续|不做)\*\*")
+DONE_HEAD = re.compile(r"^\s*\*\*(改动|验证|原因|证据)\*\*")
+LAYER_ORDER = ["接下来", "已完成"]
+TIP_ORDER = ["待确认", "下一步", "后续", "不做"]
+DONE_ORDER = ["改动", "验证", "原因", "证据"]
 
 
 class DataError(Exception):
@@ -251,6 +257,9 @@ def check(text, rules, args):
             add(found, "W2", "R32", lineno, s.find("——") + 1, "soft",
                 "一段里出现两次破折号插入。移到句首或句尾。")
 
+    if not off(args.disable, "H3", "R35"):
+        add_section_order(found, text)
+
     if args.report and not off(args.disable, "S1", "R19"):
         first = next((r for r in regions if r[2] == "prose" and r[1].strip()), None)
         if first is None:
@@ -265,6 +274,34 @@ def check(text, rules, args):
     stats = {"checked_lines": len(checked_lines), "code_lines_skipped": skipped_code_lines,
              "comment_regions": skipped_comments, "unclosed_fence": unclosed}
     return found, stats
+
+
+def add_section_order(found, text):
+    """结果汇报的层序与节序。只在这两层出现时才判。"""
+    seen = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        m = LAYER.match(line) or TIP_HEAD.match(line) or DONE_HEAD.match(line)
+        if not m:
+            continue
+        name = m.group(1)
+        if not any(n == name for _, n in seen):
+            seen.append((lineno, name))
+    names = [n for _, n in seen]
+    if "接下来" not in names and "已完成" not in names:
+        return
+    layers = [n for n in names if n in LAYER_ORDER]
+    if layers != sorted(layers, key=LAYER_ORDER.index):
+        add(found, "H3", "R35", seen[0][0], 1, "hard",
+            "层序反了。先写「接下来」，再写「已完成」。")
+    for group, order, label in ((TIP_ORDER, TIP_ORDER, "「接下来」"),
+                                (DONE_ORDER, DONE_ORDER, "「已完成」")):
+        seq = [(ln, n) for ln, n in seen if n in group]
+        got = [n for _, n in seq]
+        if got != sorted(got, key=order.index):
+            bad = next(ln for ln, n in seq
+                       if seq.index((ln, n)) > 0 and order.index(n) < order.index(got[seq.index((ln, n)) - 1]))
+            add(found, "H3", "R35", bad, 1, "hard",
+                f"{label}的节序反了。按 {' → '.join(order)} 排列。")
 
 
 def report(found, stats, path, args, out):

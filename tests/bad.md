@@ -69,3 +69,30 @@ const label = "赋能"
 
 <!-- expect: H1 -->
 1. Restart the service, wait until the health endpoint reports ready, and then verify that every queued job finishes before you resume sending traffic to the cluster again.
+
+<!-- expect: H3 -->
+## 已完成
+
+**改动**
+
+- `a.ts`：删掉重复拼接。
+
+## 接下来
+
+- **待确认**：要不要清理日志。
+
+<!-- expect: none -->
+## 接下来
+
+- **待确认**：要不要一并清理日志。
+- **不做**：iOS 实测 — 没有环境。
+
+## 已完成
+
+**改动**
+
+- `a.ts`：删掉重复拼接。
+
+**验证**
+
+- 已验证：`npm test` — 12 passed。
