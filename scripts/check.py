@@ -3,11 +3,12 @@
 
 只判能机械判对错的部分。报告是候选，不是判决。
 
-查四类内置检查：
+查五类内置检查：
   H1  句子超长。中文按 R7 字数，英文按 20/25 词（R7）
   H2  分号串动作（R31）
+  H3  两层的层序与节序（R35）
   W2  一段内两次破折号插入（R32 的近似，只报）
-  S1  首句不是状态句（R19，仅 --report）
+  S1  首句不是三种句子之一（R18，默认开启，用 --disable S1 关掉）
 
 再按 scripts/wordlist.jsonl 查词表与句式（R26 R27 R28 R29 R33）。
 词表条目的 rule 字段指向对应规则号，id 稳定，可给 --disable 用。
@@ -46,12 +47,21 @@ HEADING = re.compile(r"^\s*#{1,6}\s")
 COMMENT_LINE = re.compile(r"^\s*(#|//|--)\s?(.*)$")
 COMMENT_TAIL = re.compile(r"(?<![:\w])\s(#|//)\s+(\S.*)$")
 QUOTED = re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”")
-LAYER = re.compile(r"^##\s+(接下来|已完成)\s*$")
+LAYER = re.compile(r"^##\s+(接下来|已完成|结论|答复)\s*$")
 TIP_HEAD = re.compile(r"^\s*[-*+]\s+\*\*(待确认|下一步|后续|不做)\*\*")
-DONE_HEAD = re.compile(r"^\s*\*\*(改动|验证|原因|证据)\*\*")
-LAYER_ORDER = ["接下来", "已完成"]
+DONE_HEAD = re.compile(r"^\s*\*\*(改动|验证|现象|原因|证据)\*\*")
+SECOND_LAYERS = ["已完成", "结论", "答复"]
 TIP_ORDER = ["待确认", "下一步", "后续", "不做"]
-DONE_ORDER = ["改动", "验证", "原因", "证据"]
+DONE_ORDER = ["改动", "验证", "现象", "原因", "证据"]
+FIRST_HEADS = STATUS_WORDS + ["结论", "原因", "待确认"]
+
+TIP_ONLY = "## 接下来\n\n- **不做**：iOS 实测 — 没有环境。\n"
+INLINE_CASES = [
+    ("这个方案可行。\n\n" + TIP_ONLY, {"S1"}),
+    ("已完成：改动完成。\n\n" + TIP_ONLY + "\n## 结论\n\n**证据**：\n\n- `a.ts:1` — 说明。\n", set()),
+    ("已完成：改动完成。\n\n## 结论\n\n**原因**：说明。\n\n" + TIP_ONLY, {"H3"}),
+    ("已完成：改动完成。\n\n## 结论\n\n**原因**：说明。\n\n## 答复\n\n**证据**：\n\n- `a.ts:1` — 说明。\n", {"H3"}),
+]
 
 
 class DataError(Exception):
@@ -260,15 +270,17 @@ def check(text, rules, args):
     if not off(args.disable, "H3", "R35"):
         add_section_order(found, text)
 
-    if args.report and not off(args.disable, "S1", "R19"):
-        first = next((r for r in regions if r[2] == "prose" and r[1].strip()), None)
+    if not off(args.disable, "S1", "R18"):
+        first = next((r for r in regions
+                      if r[2] == "prose" and r[1].strip()
+                      and not HEADING.match(r[1]) and not TABLE_ROW.match(r[1])), None)
         if first is None:
-            add(found, "S1", "R19", 1, 1, "hard", "正文是空的。")
+            add(found, "S1", "R18", 1, 1, "hard", "正文是空的。")
         else:
             body = re.sub(r"^[\s>#*_`+\-]+", "", strip_noise(first[1], not args.check_quoted))
-            if not any(body.startswith(w) for w in STATUS_WORDS):
-                add(found, "S1", "R19", first[0], 1, "hard",
-                    "首句不是状态句。以「已完成」「部分完成」等 10 个状态词开头。")
+            if not any(body.startswith(w) for w in FIRST_HEADS):
+                add(found, "S1", "R18", first[0], 1, "hard",
+                    "首句不是三种句子之一。以状态词、「结论」、「原因」或「待确认」开头。")
 
     found.sort(key=lambda f: (f["line"], f["col"], f["id"]))
     stats = {"checked_lines": len(checked_lines), "code_lines_skipped": skipped_code_lines,
@@ -277,7 +289,7 @@ def check(text, rules, args):
 
 
 def add_section_order(found, text):
-    """结果汇报的层序与节序。只在这两层出现时才判。"""
+    """两层的层序与节序。只在这类层出现时才判。"""
     seen = []
     for lineno, line in enumerate(text.splitlines(), 1):
         m = LAYER.match(line) or TIP_HEAD.match(line) or DONE_HEAD.match(line)
@@ -286,22 +298,23 @@ def add_section_order(found, text):
         name = m.group(1)
         if not any(n == name for _, n in seen):
             seen.append((lineno, name))
-    names = [n for _, n in seen]
-    if "接下来" not in names and "已完成" not in names:
+    layers = [(ln, n) for ln, n in seen if n == "接下来" or n in SECOND_LAYERS]
+    if not layers:
         return
-    layers = [n for n in names if n in LAYER_ORDER]
-    if layers != sorted(layers, key=LAYER_ORDER.index):
-        add(found, "H3", "R35", seen[0][0], 1, "hard",
-            "层序反了。先写「接下来」，再写「已完成」。")
-    for group, order, label in ((TIP_ORDER, TIP_ORDER, "「接下来」"),
-                                (DONE_ORDER, DONE_ORDER, "「已完成」")):
+    if len(layers) > 2:
+        add(found, "H3", "R35", layers[2][0], 1, "hard",
+            "只允许两层。多出来的层删掉，内容并入第二层。")
+    if len(layers) == 2 and layers[0][1] != "接下来":
+        add(found, "H3", "R35", layers[0][0], 1, "hard",
+            f"层序反了。先写「接下来」，再把「{layers[0][1]}」放到第二层。")
+    for group, label in ((TIP_ORDER, "「接下来」"), (DONE_ORDER, "第二层")):
         seq = [(ln, n) for ln, n in seen if n in group]
         got = [n for _, n in seq]
-        if got != sorted(got, key=order.index):
+        if got != sorted(got, key=group.index):
             bad = next(ln for ln, n in seq
-                       if seq.index((ln, n)) > 0 and order.index(n) < order.index(got[seq.index((ln, n)) - 1]))
+                       if seq.index((ln, n)) > 0 and group.index(n) < group.index(got[seq.index((ln, n)) - 1]))
             add(found, "H3", "R35", bad, 1, "hard",
-                f"{label}的节序反了。按 {' → '.join(order)} 排列。")
+                f"{label}的节序反了。按 {' → '.join(group)} 排列。")
 
 
 def report(found, stats, path, args, out):
@@ -325,8 +338,7 @@ def selftest(root):
         return 2
     rules = load_rules(WORDLIST)
     args = argparse.Namespace(disable=set(), no_soft=False, check_quoted=False,
-                              report=False, max_steps=DEFAULT_MAX_STEP,
-                              max_desc=DEFAULT_MAX_DESC)
+                              max_steps=DEFAULT_MAX_STEP, max_desc=DEFAULT_MAX_DESC)
     failures = []
 
     found, _ = check(clean.read_text(encoding="utf-8"), rules, args)
@@ -353,6 +365,13 @@ def selftest(root):
             failures.append(f"bad.md:{lineno} 预期 {expect}，实际 {sorted(got) or '无'}")
         print(f"  {'ok  ' if ok else 'FAIL'} 行 {lineno} 预期 {expect}")
 
+    for text, expect in INLINE_CASES:
+        got = {f["id"] for f in check(text, rules, args)[0]}
+        ok = got == expect
+        if not ok:
+            failures.append(f"内联用例预期 {sorted(expect) or '无'}，实际 {sorted(got) or '无'}：{text.splitlines()[0]}")
+        print(f"  {'ok  ' if ok else 'FAIL'} 内联 {text.splitlines()[0][:24]}")
+
     if failures:
         for f in failures:
             print("FAIL", f, file=sys.stderr)
@@ -366,7 +385,6 @@ def main(argv):
     ap.add_argument("paths", nargs="*", help="要检查的文件，- 表示 stdin")
     ap.add_argument("--text", help="直接给一段文字")
     ap.add_argument("--json", action="store_true", help="输出 JSON")
-    ap.add_argument("--report", action="store_true", help="启用首句状态检查")
     ap.add_argument("--disable", default="", help="逗号分隔的 id 或规则号，如 r29-01,R31")
     ap.add_argument("--no-soft", action="store_true", help="不报告 soft 项")
     ap.add_argument("--check-quoted", action="store_true", help="连引号内的内容一起检查")
