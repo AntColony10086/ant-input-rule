@@ -9,10 +9,11 @@
 位置有两种。仓库内的写成 `tests/bad.md:5`。真实会话的写成
 `2026-11-06T13-12-23:196`，文件按时间戳在 ~/.pi/agent/sessions/ 下找。
 
-本脚本做三件事：
+本脚本做四件事：
   1. 每条规则至少一个「差」和一个「好」。少一个就报。
   2. 每个例子的原文能在它写的位置逐字找到。「…」分开的片段按先后顺序找。
   3. 能交给检查脚本回放的规则，回放一遍：差必须命中，好必须不命中。
+  4. 加粗一致性：模板占位行、R18 正文、R18 引用的仓库样本行，三处都要整句加粗，缺一处就报。
 
 第 3 条只覆盖词表类规则（R26 R27 R28 R29 R33）和形状类检查（R7 R31 R35 R18）。
 其余规则靠人判，脚本只保证原文真的在那里。
@@ -38,6 +39,9 @@ EXAMPLE = re.compile(r"([差好])「(.+?)」（`([^`]+)`([^）]*)）")
 SESSION_LOC = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}):(\d+)$")
 REPO_LOC = re.compile(r"^([^:\s]+\.(?:md|py|jsonl|json)):(\d+)$")
 ELLIPSIS = "…"
+TEMPLATE_BOLD = re.compile(r"^\*\*首句：.+\*\*\s*$", re.M)
+SAMPLE_BOLD = re.compile(r"^\s*\*\*.+\*\*\s*$")
+BOLD_RULE_PHRASE = "按模板加粗"
 
 
 class Bad(Exception):
@@ -45,6 +49,7 @@ class Bad(Exception):
 
 
 def normalize(s: str) -> str:
+    """逐字比对忽略空白和星号。加粗不在比对范围，由 check_bold_consistency 查原始行。"""
     return re.sub(r"[\s*]", "", s)
 
 
@@ -101,6 +106,32 @@ def in_source(quote: str, source: str) -> bool:
             return False
         pos = at + len(part)
     return True
+
+
+def check_bold_consistency(skill_text: str, pairs) -> list:
+    """模板、R18 正文、R18 引用的仓库样本，三处加粗必须一致。缺一处就报。"""
+    fails = []
+    if not TEMPLATE_BOLD.search(skill_text):
+        fails.append("模板首句占位行没有整句加粗。要写成 **首句：…**。")
+    r18 = next((l for l in skill_text.splitlines() if l.startswith("- **R18")), "")
+    if BOLD_RULE_PHRASE not in r18:
+        fails.append("R18 正文缺「首句按模板加粗」。")
+    for rid, line in pairs:
+        if rid != "R18" or line is None:
+            continue
+        items = EXAMPLE.findall(" ".join(line) if isinstance(line, list) else line)
+        for kind, _quote, loc, _extra in items:
+            if kind != "好" or not REPO_LOC.match(loc):
+                continue
+            path, lineno = loc.split(":")
+            try:
+                raw = (REPO / path).read_text(encoding="utf-8").splitlines()[int(lineno) - 1]
+            except (OSError, IndexError):
+                fails.append(f"R18 好 的样本取不到：{loc}")
+                continue
+            if not SAMPLE_BOLD.match(raw):
+                fails.append(f"R18 好 引用的样本没有整句加粗：{loc}")
+    return fails
 
 
 def rules_of(skill_text: str):
@@ -163,6 +194,7 @@ def main(argv):
         return 2
 
     fails, rows = [], []
+    fails.extend(check_bold_consistency(skill, pairs))
     n_ex = n_verbatim = n_replayed = 0
     skipped = []
     for rid, line in pairs:
@@ -207,6 +239,7 @@ def main(argv):
             print(f"  按例子行标的不回放：{'、'.join(skipped)}")
         if not fails:
             print("每条规则都带两个能查到原文的例子。")
+            print("加粗三处一致：模板占位行、R18 正文、引用样本。")
     return 1 if fails else 0
 
 

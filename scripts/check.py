@@ -8,7 +8,7 @@
   H2  分号串动作（R31）
   H3  两层的层序与节序（R35）
   W2  一段内两次破折号插入（R32 的近似，只报）
-  S1  首句不是三种句子之一（R18，默认开启，用 --disable S1 关掉）
+  S1  首句不是三种句子之一，或没有按模板加粗（R18，默认开启，用 --disable S1 关掉）
 
 再按 scripts/wordlist.jsonl 查词表与句式（R26 R27 R28 R29 R33）。
 词表条目的 rule 字段指向对应规则号，id 稳定，可给 --disable 用。
@@ -58,9 +58,10 @@ FIRST_HEADS = STATUS_WORDS + ["结论", "原因", "待确认"]
 TIP_ONLY = "## 接下来\n\n- **不做**：iOS 实测 — 没有环境。\n"
 INLINE_CASES = [
     ("这个方案可行。\n\n" + TIP_ONLY, {"S1"}),
-    ("已完成：改动完成。\n\n" + TIP_ONLY + "\n## 结论\n\n**证据**：\n\n- `a.ts:1` — 说明。\n", set()),
-    ("已完成：改动完成。\n\n## 结论\n\n**原因**：说明。\n\n" + TIP_ONLY, {"H3"}),
-    ("已完成：改动完成。\n\n## 结论\n\n**原因**：说明。\n\n## 答复\n\n**证据**：\n\n- `a.ts:1` — 说明。\n", {"H3"}),
+    ("已完成：改动完成。\n\n" + TIP_ONLY, {"S1"}),
+    ("**已完成：改动完成。**\n\n" + TIP_ONLY + "\n## 结论\n\n**证据**：\n\n- `a.ts:1` — 说明。\n", set()),
+    ("**已完成：改动完成。**\n\n## 结论\n\n**原因**：说明。\n\n" + TIP_ONLY, {"H3"}),
+    ("**已完成：改动完成。**\n\n## 结论\n\n**原因**：说明。\n\n## 答复\n\n**证据**：\n\n- `a.ts:1` — 说明。\n", {"H3"}),
 ]
 
 
@@ -273,14 +274,19 @@ def check(text, rules, args):
     if not off(args.disable, "S1", "R18"):
         first = next((r for r in regions
                       if r[2] == "prose" and r[1].strip()
-                      and not HEADING.match(r[1]) and not TABLE_ROW.match(r[1])), None)
+                      and not HEADING.match(r[1]) and not TABLE_ROW.match(r[1])
+                      and strip_noise(r[1], True).strip()), None)
         if first is None:
             add(found, "S1", "R18", 1, 1, "hard", "正文是空的。")
         else:
-            body = re.sub(r"^[\s>#*_`+\-]+", "", strip_noise(first[1], not args.check_quoted))
+            raw = strip_noise(first[1], not args.check_quoted)
+            body = re.sub(r"^[\s>#*_`+\-]+", "", raw)
             if not any(body.startswith(w) for w in FIRST_HEADS):
                 add(found, "S1", "R18", first[0], 1, "hard",
                     "首句不是三种句子之一。以状态词、「结论」、「原因」或「待确认」开头。")
+            elif not re.match(r"^\s*(?:>\s*)?\*\*.+\*\*\s*$", raw):
+                add(found, "S1", "R18", first[0], 1, "hard",
+                    "首句没有按模板加粗。整句包进 **，像模板首句那样。")
 
     found.sort(key=lambda f: (f["line"], f["col"], f["id"]))
     stats = {"checked_lines": len(checked_lines), "code_lines_skipped": skipped_code_lines,
