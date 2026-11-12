@@ -3,7 +3,7 @@
 
 只判能机械判对错的部分。报告是候选，不是判决。
 
-查九类内置检查：
+查十类内置检查：
   H1  句子超长。中文按 R7 字数，英文按 20/25 词（R7）
   H2  分号串动作（R31）
   H3  两层的层序与节序（R35）
@@ -13,6 +13,7 @@
   W4  验证节里已验证排在失败或未验证前面（R36 的近似，只报）
   W5  代码、路径记号没写在反引号内（R4 的近似，只报）
   S1  首句不是三种句子之一，或没有按模板加粗（R18，默认开启，用 --disable S1 关掉）
+  S2  用户问的是疑问句（问进度的除外），首句报工作状态，且首句和问题没有共同的词（R39，只报，要给 --question 才查）
 
 再按 scripts/wordlist.jsonl 查词表与句式（R26 R27 R28 R29 R33）。
 词表条目的 rule 字段指向对应规则号，id 稳定，可给 --disable 用。
@@ -22,6 +23,7 @@
   R19/R20 状态词与验证状态的语义正确性：只查白名单，查不了用得对不对。R36 的节内排序已由 W4 近似，节内条目的信息密度仍需人读。
   R4 的界面文案与按钮名没法机械识别，W5 只查带扩展名的代码与路径记号；R22 的段落内证据不在 W3 范围。
   W3 判不了条目算不算断言、例子是否支撑断言。判据在规范：例子必须支撑本条断言，不是有条例子就算。段落断言与无层上下文的编号行不在机械范围，候选要人确认。
+  R39 的语义部分：换了词答对、或在第二层答对、而首句写了别的，脚本判不了。S2 只查「疑问句、状态句、无共同词」这一种形状。
   词表里的「硬凑搭配」只覆盖常见写法，长尾判不了。
 
 退出码：0 通过，1 有硬违规，2 用法或数据错误。
@@ -67,6 +69,12 @@ W3_SKIP_SECTIONS = ("证据", "术语")
 W4_BAD = ("失败", "未验证", "未确认", "阻塞")
 BARE_CODE = re.compile(r"[A-Za-z0-9_-]+\.(?:py|md|ts|js|json|jsonl|sh|yaml|yml|toml|txt)\b")
 QUOTED_MARK = re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”|〈[^〉]*》")
+CODE_SPAN = re.compile(r"`([^`]+)`")
+ASCII_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.\-]+")
+CJK_RUN = re.compile(r"[\u4e00-\u9fff]+")
+QUESTION_WORD = re.compile(r"[?？]|为什么|怎么|如何|什么|是不是|能不能|要不要|有没有|哪个|哪些|多少|吗")
+STATUS_QUESTION = re.compile(r"进度|状态|怎么样了|到哪了|做到哪")
+
 
 TIP_ONLY = "## 接下来\n\n- **不做**：iOS 实测 — 没有环境。\n"
 INLINE_CASES = [
@@ -86,6 +94,18 @@ INLINE_CASES = [
     ("**已完成：改动完成。**\n\n**验证**\n\n- 已验证：全部通过（`t.py:1`）。\n\n- 未验证：iOS 端。\n", {"W4"}),
     ("**已完成：改动完成。**\n\n- 改了 auth/refresh.ts，详情见 `auth/refresh.ts:1`。\n", {"W5"}),
     ("**已完成：改动完成。**\n\n- 改了 `auth/refresh.ts`，详情见 `auth/refresh.ts:1`。\n", set()),
+]
+
+
+S2_CASES = [
+    ("为什么 trx_commit 不许进候选？",
+     "**进行中：这个问题已转给 `router-profiler`，要它短答。**\n\n" + TIP_ONLY, {"S2"}),
+    ("为什么 trx_commit 不许进候选？",
+     "**结论：`trx_commit` 改的是提交即持久这句承诺。**\n\n" + TIP_ONLY, set()),
+    ("什么进度了？",
+     "**部分完成：装好两个，还剩一个。**\n\n" + TIP_ONLY, set()),
+    ("把未读改成黄色",
+     "**已完成：未读颜色改成黄色。**\n\n" + TIP_ONLY, set()),
 ]
 
 
@@ -217,6 +237,23 @@ def w3_status_word(raw):
             if cs.startswith(w):
                 return w
     return None
+
+
+def content_tokens(s):
+    """粗分词：代码片段、英文词、汉字二元组。只用来判断两句话是不是在说同一件事。"""
+    tokens = {span.strip().lower() for span in CODE_SPAN.findall(s)}
+    for word in ASCII_TOKEN.findall(CODE_SPAN.sub(" ", s)):
+        tokens.add(word.lower())
+    for run in CJK_RUN.findall(CODE_SPAN.sub(" ", s)):
+        tokens.update(run[i:i + 2] for i in range(len(run) - 1))
+    return tokens
+
+
+def first_prose(regions):
+    return next((r for r in regions
+                 if r[2] == "prose" and r[1].strip()
+                 and not HEADING.match(r[1]) and not TABLE_ROW.match(r[1])
+                 and strip_noise(r[1], True).strip()), None)
 
 
 def sentences(line):
@@ -393,10 +430,7 @@ def check(text, rules, args):
         add_section_order(found, text)
 
     if not off(args.disable, "S1", "R18"):
-        first = next((r for r in regions
-                      if r[2] == "prose" and r[1].strip()
-                      and not HEADING.match(r[1]) and not TABLE_ROW.match(r[1])
-                      and strip_noise(r[1], True).strip()), None)
+        first = first_prose(regions)
         if first is None:
             add(found, "S1", "R18", 1, 1, "hard", "正文是空的。")
         else:
@@ -408,6 +442,19 @@ def check(text, rules, args):
             elif not re.match(r"^\s*(?:>\s*)?\*\*.+\*\*\s*$", raw):
                 add(found, "S1", "R18", first[0], 1, "hard",
                     "首句没有按模板加粗。整句包进 **，像模板首句那样。")
+
+    question = getattr(args, "question", None)
+    if (not off(args.disable, "S2", "R39") and question
+            and QUESTION_WORD.search(question)
+            and not STATUS_QUESTION.search(question)):
+        first = first_prose(regions)
+        if first is not None:
+            head = re.sub(r"^[\s>#*_`+\-]+", "", strip_noise(first[1], True))
+            if (any(head.startswith(w) for w in STATUS_WORDS)
+                    and not content_tokens(first[1]) & content_tokens(question)):
+                add(found, "S2", "R39", first[0], 1, "soft",
+                    "用户问的是问题，首句报的是工作状态，而且首句和问题没有共同的词。"
+                    "确认首句答的就是用户问的那件事。")
 
     if section == "验证" and verify_ok and verify_bad and verify_ok[0] < verify_bad[0]:
         add(found, "W4", "R36", verify_ok[0], 1, "soft",
@@ -469,7 +516,8 @@ def selftest(root):
         return 2
     rules = load_rules(WORDLIST)
     args = argparse.Namespace(disable=set(), no_soft=False, check_quoted=False,
-                              max_steps=DEFAULT_MAX_STEP, max_desc=DEFAULT_MAX_DESC)
+                              max_steps=DEFAULT_MAX_STEP, max_desc=DEFAULT_MAX_DESC,
+                              question=None)
     failures = []
 
     found, _ = check(clean.read_text(encoding="utf-8"), rules, args)
@@ -503,6 +551,15 @@ def selftest(root):
             failures.append(f"内联用例预期 {sorted(expect) or '无'}，实际 {sorted(got) or '无'}：{text.splitlines()[0]}")
         print(f"  {'ok  ' if ok else 'FAIL'} 内联 {text.splitlines()[0][:24]}")
 
+    for question, text, expect in S2_CASES:
+        args.question = question
+        got = {f["id"] for f in check(text, rules, args)[0]}
+        ok = got == expect
+        if not ok:
+            failures.append(f"S2 用例预期 {sorted(expect) or '无'}，实际 {sorted(got) or '无'}：{text.splitlines()[0]}")
+        print(f"  {'ok  ' if ok else 'FAIL'} S2 {text.splitlines()[0][:24]}")
+    args.question = None
+
     if failures:
         for f in failures:
             print("FAIL", f, file=sys.stderr)
@@ -522,6 +579,7 @@ def main(argv):
     ap.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEP)
     ap.add_argument("--max-desc", type=int, default=DEFAULT_MAX_DESC)
     ap.add_argument("--selftest", action="store_true", help="跑 tests/ 下的正反样本")
+    ap.add_argument("--question", help="用户的原话。S2 用它判断首句答的是不是那件事")
     args = ap.parse_args(argv)
     args.disable = {x.strip() for x in args.disable.split(",") if x.strip()}
 

@@ -1,7 +1,7 @@
 ---
 name: ant-output-rule
 description: >
-  Make the agent report results to the user by the ASD-STE100 principles, in Chinese: one two-layer shape for every reply, first sentence fixed to one of three types, one word one meaning, one fact per sentence, fixed status words, honest verification state, sentences a reader parses on the first pass. Every rule carries two real examples, one bad and one good. Use only when the user explicitly activates it; never activate it automatically, including for task result reports. Once activated, applies to every reply in the session until the user says "停止 ant-output-rule" or "stop ant-output-rule". 让 Agent 按 ASD-STE100 原则用中文向用户汇报结果: 用已有的词, 不造词, 每条规则带两个真实例子; 只在用户明确激活时使用, 任务结果汇报也不例外. Explicit activation: "/skill:ant-output-rule", "用 STE 规范输出", "按 ASD-STE100 汇报","report in STE style". 附带确定性检查脚本 scripts/check.py 与 examples 检查脚本 scripts/lint_rules.py，发送前运行。
+  Make the agent report results to the user by the ASD-STE100 principles, in Chinese: one two-layer shape for every reply, the first sentence answers the user's question and opens with one of three fixed types, one word one meaning, one fact per sentence, fixed status words, honest verification state, sentences a reader parses on the first pass. Every rule carries two real examples, one bad and one good. Use only when the user explicitly activates it; never activate it automatically, including for task result reports. Once activated, applies to every reply in the session until the user says "停止 ant-output-rule" or "stop ant-output-rule". 让 Agent 按 ASD-STE100 原则用中文向用户汇报结果: 用已有的词, 不造词, 每条规则带两个真实例子; 只在用户明确激活时使用, 任务结果汇报也不例外. Explicit activation: "/skill:ant-output-rule", "用 STE 规范输出", "按 ASD-STE100 汇报","report in STE style". 附带确定性检查脚本 scripts/check.py 与 examples 检查脚本 scripts/lint_rules.py，发送前运行。
 disable-model-invocation: true
 ---
 
@@ -53,7 +53,7 @@ disable-model-invocation: true
 
 - 默认用中文。
 - 用户指定其他语言，或项目规定了输出语言时，用指定的语言。
-- 输出语言是英文时，按 ASD-STE100 的原则写英文：步骤句不超过 20 个词，描述句不超过 25 个词。R1–R37 中与语言无关的规则照常适用。`scripts/wordlist.jsonl` 的词表和句式只用于中文。
+- 输出语言是英文时，按 ASD-STE100 的原则写英文：步骤句不超过 20 个词，描述句不超过 25 个词。R1–R39 中与语言无关的规则照常适用。`scripts/wordlist.jsonl` 的词表和句式只用于中文。
 
 ## 三条硬要求
 
@@ -201,9 +201,9 @@ disable-model-invocation: true
 
 ### 汇报
 
-本节含 R18–R25、R35–R38。
+本节含 R18–R25、R35–R39。
 
-- **R18 首句定类型。** 每条回复的首句以固定的开头词开头，只有三种。状态句用 R19 的工作状态词开头，写完成范围。结论句用「结论」或「原因」开头，写答案或成因。待决句用「待确认」开头，写要读者拍板的事。首句不写证据和细节，它们归第二层。首句按模板加粗。
+- **R18 首句定类型。** 每条回复的首句以固定的开头词开头，只有三种。状态句用 R19 的工作状态词开头，写完成范围。结论句用「结论」或「原因」开头，写答案或成因。待决句用「待确认」开头，写要读者拍板的事。首句不写证据和细节，它们归第二层。首句按模板加粗。首句答哪一件事，见 R39。
   - 差「第一步已完成：4 个文件复制完毕，md5 与源文件逐一相同。」（`2026-11-08T04-46-09:345`）
   - 好「**已完成：登录刷新逻辑的代码修改。iOS 端未验证。**」（`tests/clean.md:1`）
   - 前一句以「第一步」开头，读者要先猜这一条是什么类型。
@@ -248,6 +248,14 @@ disable-model-invocation: true
   - 差「- ack 了两条消息（msg-1794466571801-8b6ed5、msg-1794466625635-05583a）。」（`2026-11-12T06-56-07:51`）
   - 好「- 要求写在 `SKILL.md:257` 的模板里，那一行本身就是加粗的。」（`2026-11-12T05-52-42:353`）
   - 前一条是断言型条目，没有例子位置。后一条的断言由 `SKILL.md:257` 支撑。
+- **R39 首句先答用户问的那件事。** 写首句前，取用户最后一条消息里要答的那一句。首句先答这一件，别的往后放。
+  - 用户问的是疑问句时，首句写答案，或写「原因未确认」加确认方法。答案还没到，写这件事走到哪一步、在等什么。
+  - 首句不写 Agent 的内部动作。转发、下发、派活都是我做了什么，不是用户问的那件事。这些写进第二层。
+  - 用户问了多件，首句答第一件，并写清共有几件。
+  - 首句答的不是用户问的那一件，写明它在答哪一件，并把用户的原问题放第二层开头。
+  - 差「**进行中：这个问题已转给 `router-profiler`，要它短答。**」（`2026-11-11T14-07-34:326`）
+  - 好「**结论：它改的是「提交即持久」这句承诺，不是性能旋钮。**」（`2026-11-11T14-07-34:331`）
+  - 两句答的是同一个问题「为什么 `trx_commit` 不许进候选？」。前一句写我做了什么。后一句把原因写进首句。
 
 ## 三条使用注意
 
@@ -290,6 +298,7 @@ disable-model-invocation: true
 规则：
 
 - 首句整句加粗，占位行的 `**` 是模板形状的一部分。`scripts/check.py` 的 S1 同时查类型与加粗，缺加粗按硬违规处理。
+- 首句先答用户最后一条消息里问的那件事，内部动作不写进首句（R39）。
 - 「接下来」的四个开头词各最多一行，没有内容的删掉。事项有多个选项时，在事项下按 R23 列编号选项。
 - 推荐的动作写进「下一步」。只有一个动作时不列选项。
 - 「验证」节按 R20 写标签：失败、未验证、未确认、已验证。没通过的排最前。
@@ -306,6 +315,7 @@ disable-model-invocation: true
 
 ### 通用检查
 
+- [ ] 首句答的是用户最后一条消息里问的那件事，不是 Agent 的内部动作（R39）。
 - [ ] 首句按模板加粗，以状态词、「结论」、「原因」或「待确认」开头（R18）。
 - [ ] 写状态时，使用 R19 的固定词，并明确范围（R19）。
 - [ ] 没有过程叙述（R21）。
@@ -333,7 +343,7 @@ disable-model-invocation: true
 - [ ] 层内按影响排序，失败和阻塞在前（R36）。
 - [ ] 自己缩小范围、跳过检查、额外改动，都进了「待确认」（R35）。
 
-这份清单是高频项，不是 R1–R37 全集。没列出的规则照样适用。
+这份清单是高频项，不是 R1–R39 全集。没列出的规则照样适用。
 
 ### 按首句类型检查
 
@@ -341,6 +351,7 @@ disable-model-invocation: true
 - **结论句**：首句写结论或成因。原因没查清时写「原因未确认」并写确认方法。证据可定位。资料内容证据没有冒充运行验证。推荐的动作进「下一步」。
 - **待决句**：首句写待决事项。选项在第一层，编号，每项写动作与后果。推荐项放第一。
 - **多项总结**：首句写「结论：…」。需求与实际成果区分。术语在第二层开头，第一层不用未定义的专用词。
+- **所有类型**：首句先答用户最后一条消息里问的那件事。用户问的是疑问句时，首句给答案，或写「原因未确认」。转发和派活不算答案（R39）。
 
 任何类型中出现实际效果断言时，检查其验证状态、方法、结果与范围（R20）。
 
@@ -361,6 +372,11 @@ python3 ~/.pi/agent/skills/ant-output-rule/scripts/lint_rules.py
 脚本还没装到 `~/.pi/agent/skills/` 时，把命令里的路径换成 skill 所在目录。
 
 首句检查默认开启，每种回复都查。草稿只是片段，或首句由用户指定的格式决定时，用 `--disable S1` 跳过。
+草稿是一条回复时，把用户的原话一起传进去，S2 才查得了首句答的是不是那件事。
+
+```
+python3 ~/.pi/agent/skills/ant-output-rule/scripts/check.py 草稿.md --question "为什么 trx_commit 不许进候选？"
+```
 
 - 退出码 0：通过，直接发送。
 - 退出码 1：有硬违规。改掉后重跑一次。
