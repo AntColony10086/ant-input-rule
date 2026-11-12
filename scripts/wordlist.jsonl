@@ -79,3 +79,19 @@
 {"id": "sr33-01", "level": "soft", "kind": "pattern", "value": "换句话说", "rule": "R33"}
 {"id": "sr33-02", "level": "soft", "kind": "pattern", "value": "这意味着", "rule": "R33"}
 {"id": "sr33-03", "level": "soft", "kind": "pattern", "value": "在[^。，]{0,20}的背景下", "rule": "R33"}
+{"id": "r03-01", "level": "hard", "kind": "pattern", "value": "进行(修改|处理|检查|优化|升级|调整|分析|评估)", "rule": "R3"}
+{"id": "r08-01", "level": "soft", "kind": "word", "value": "被", "rule": "R8", "exclude": ["被动"]}
+{"id": "r10-01", "level": "soft", "kind": "word", "value": "不能不", "rule": "R10"}
+{"id": "r11-01", "level": "hard", "kind": "word", "value": "应该", "rule": "R11", "exclude": ["应该是"]}
+{"id": "r11-02", "level": "hard", "kind": "word", "value": "不要", "rule": "R11", "exclude": ["要不要", "不要紧"]}
+{"id": "r11-03", "level": "hard", "kind": "word", "value": "务必", "rule": "R11"}
+{"id": "r11-04", "level": "hard", "kind": "word", "value": "切勿", "rule": "R11"}
+{"id": "r11-05", "level": "hard", "kind": "word", "value": "应当", "rule": "R11"}
+{"id": "r11-06", "level": "hard", "kind": "word", "value": "不应", "rule": "R11"}
+{"id": "r17-01", "level": "hard", "kind": "word", "value": "之类", "rule": "R17"}
+{"id": "r17-02", "level": "soft", "kind": "pattern", "value": "[一-龥]等[。，、；]", "rule": "R17", "exclude": ["(平等|等于|等待|等候|等号|等式|等价|同等|上等|头等|特等|等等|等下|等会)"]}
+{"id": "r20-01", "level": "hard", "kind": "word", "value": "理论上", "rule": "R20"}
+{"id": "r21-01", "level": "hard", "kind": "pattern", "value": "我先.{0,16}然后", "rule": "R21"}
+{"id": "r21-02", "level": "soft", "kind": "pattern", "value": "接着[^。]{0,12}[，。]", "rule": "R21"}
+{"id": "r24-01", "level": "hard", "kind": "word", "value": "可能", "rule": "R24"}
+{"id": "r24-02", "level": "hard", "kind": "word", "value": "大概", "rule": "R24"}

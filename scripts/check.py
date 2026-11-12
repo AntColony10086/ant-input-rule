@@ -3,20 +3,26 @@
 
 只判能机械判对错的部分。报告是候选，不是判决。
 
-查五类内置检查：
+查九类内置检查：
   H1  句子超长。中文按 R7 字数，英文按 20/25 词（R7）
   H2  分号串动作（R31）
   H3  两层的层序与节序（R35）
+  H4  一段超过 6 句（R13）
   W2  一段内两次破折号插入（R32 的近似，只报）
+  W3  断言条目没有位置引用：查列表条目、有节的编号行、表格数据行。证据与术语两节、待确认的缩进选项、接下来层的编号步骤豁免（R38 的近似，只报）
+  W4  验证节里已验证排在失败或未验证前面（R36 的近似，只报）
+  W5  代码、路径记号没写在反引号内（R4 的近似，只报）
   S1  首句不是三种句子之一，或没有按模板加粗（R18，默认开启，用 --disable S1 关掉）
 
 再按 scripts/wordlist.jsonl 查词表与句式（R26 R27 R28 R29 R33）。
 词表条目的 rule 字段指向对应规则号，id 稳定，可给 --disable 用。
 
 不做：
-  R30 无生命主语、R32 主谓距离、R34 定语套叠：不可机械判。
+  R1 一词一义、R2 先定义后使用、R5 名词串、R6 一句一事、R9 条件在前、R12 主语明确、R14 祈使句、R15 列表代替长句、R16 警告先命令、R23 选项编号、R25 不编造、R30 无生命主语、R32 主谓距离、R34 定语套叠、R37 两实例：需要语义或分词判断，机械判不了。
+  R19/R20 状态词与验证状态的语义正确性：只查白名单，查不了用得对不对。R36 的节内排序已由 W4 近似，节内条目的信息密度仍需人读。
+  R4 的界面文案与按钮名没法机械识别，W5 只查带扩展名的代码与路径记号；R22 的段落内证据不在 W3 范围。
+  W3 判不了条目算不算断言、例子是否支撑断言。判据在规范：例子必须支撑本条断言，不是有条例子就算。段落断言与无层上下文的编号行不在机械范围，候选要人确认。
   词表里的「硬凑搭配」只覆盖常见写法，长尾判不了。
-  状态词的语义正确性：只查白名单，查不了用得对不对。
 
 退出码：0 通过，1 有硬违规，2 用法或数据错误。
 """
@@ -54,6 +60,13 @@ SECOND_LAYERS = ["已完成", "结论", "答复"]
 TIP_ORDER = ["待确认", "下一步", "后续", "不做"]
 DONE_ORDER = ["改动", "验证", "现象", "原因", "证据"]
 FIRST_HEADS = STATUS_WORDS + ["结论", "原因", "待确认"]
+LOC_REF = re.compile(r"[A-Za-z0-9_./~-]+\.[A-Za-z0-9]+:\d+|\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}:\d+")
+SEP_ROW = re.compile(r"^\s*\|[\s:|-]+\|?\s*$")
+SKIP_SECTION = re.compile(r"^\s*\*\*(术语|证据)\*\*")
+W3_SKIP_SECTIONS = ("证据", "术语")
+W4_BAD = ("失败", "未验证", "未确认", "阻塞")
+BARE_CODE = re.compile(r"[A-Za-z0-9_-]+\.(?:py|md|ts|js|json|jsonl|sh|yaml|yml|toml|txt)\b")
+QUOTED_MARK = re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”|〈[^〉]*》")
 
 TIP_ONLY = "## 接下来\n\n- **不做**：iOS 实测 — 没有环境。\n"
 INLINE_CASES = [
@@ -62,6 +75,17 @@ INLINE_CASES = [
     ("**已完成：改动完成。**\n\n" + TIP_ONLY + "\n## 结论\n\n**证据**：\n\n- `a.ts:1` — 说明。\n", set()),
     ("**已完成：改动完成。**\n\n## 结论\n\n**原因**：说明。\n\n" + TIP_ONLY, {"H3"}),
     ("**已完成：改动完成。**\n\n## 结论\n\n**原因**：说明。\n\n## 答复\n\n**证据**：\n\n- `a.ts:1` — 说明。\n", {"H3"}),
+    ("**已完成：改动完成。**\n\n- 刷新有缺陷，并发时两个请求互相覆盖。\n", {"W3"}),
+    ("**已完成：改动完成。**\n\n- 刷新有缺陷（`auth/refresh.ts:42`）。\n", set()),
+    ("**已完成：改动完成。**\n\n**证据**\n\n- 结论有输出记录支撑，无需另行举例。\n", set()),
+    ("**已完成：改动完成。**\n\n- **待确认**：要不要改导出格式。\n  1. 不改 — 范围外。\n  2. 改 — 追加验证。\n", set()),
+    ("**已完成：改动完成。**\n\n## 接下来\n\n1. 重启容器。\n2. 重跑检查。\n", set()),
+    ("**已完成：改动完成。**\n\n**术语**\n\n- W3：断言条目的位置引用提示。\n", set()),
+    ("**已完成：改动完成。**\n\n**现象**\n\n| 触发条件 | 现象 |\n|---|---|\n| 并发写入 | 记录互相覆盖，没有留痕 |\n", {"W3"}),
+    ("**已完成：改动完成。**\n\n## 结论\n\n**原因**\n\n1. 先完成的请求使后拿到的令牌失效。\n", {"W3"}),
+    ("**已完成：改动完成。**\n\n**验证**\n\n- 已验证：全部通过（`t.py:1`）。\n\n- 未验证：iOS 端。\n", {"W4"}),
+    ("**已完成：改动完成。**\n\n- 改了 auth/refresh.ts，详情见 `auth/refresh.ts:1`。\n", {"W5"}),
+    ("**已完成：改动完成。**\n\n- 改了 `auth/refresh.ts`，详情见 `auth/refresh.ts:1`。\n", set()),
 ]
 
 
@@ -181,6 +205,20 @@ def is_english(s):
     return words >= 3 and words > cjk * 2
 
 
+def w3_status_word(raw):
+    """条目开头或表格任一单元格开头是状态词时返回该词。状态行归 R19/R20，W3 不查。"""
+    head = re.sub(r"^[\s>|*`+\-\d.、()（）]+", "", raw)
+    for w in STATUS_WORDS:
+        if head.startswith(w):
+            return w
+    for cell in raw.split("|"):
+        cs = cell.strip()
+        for w in STATUS_WORDS:
+            if cs.startswith(w):
+                return w
+    return None
+
+
 def sentences(line):
     parts, buf = [], ""
     for ch in line:
@@ -215,9 +253,19 @@ def check(text, rules, args):
     checked_lines = {ln for ln, _, _ in regions}
     skipped_code_lines = total_lines - len(checked_lines)
 
+    layer = None
+    section = None
+    pending_tip = None
+    last_table_row = False
+    verify_ok = None
+    verify_bad = None
+    para_count = 0
+    para_fired = False
     for lineno, raw, kind in regions:
         s = strip_noise(raw, not args.check_quoted)
         if not s.strip():
+            para_count = 0
+            para_fired = False
             continue
         if kind == "comment":
             skipped_comments += 1
@@ -243,6 +291,79 @@ def check(text, rules, args):
 
         if kind != "prose":
             continue
+
+        # W3/W4 的节上下文。豁免按节名、层名与缩进判，不按行首形状一刀切。
+        stripped = raw.strip()
+        m_layer = LAYER.match(raw)
+        m_tip = TIP_HEAD.match(raw)
+        m_done = DONE_HEAD.match(raw)
+        m_skip = SKIP_SECTION.match(raw)
+        is_table = bool(TABLE_ROW.match(raw))
+        indented = raw[:1] in (" ", "\t")
+        new_layer = m_layer.group(1) if m_layer else layer
+        new_section = (m_skip or m_done).group(1) if (m_skip or m_done) else (None if m_layer else section)
+        if section == "验证" and (new_section != "验证" or new_layer != layer):
+            if verify_ok and verify_bad and verify_ok[0] < verify_bad[0]:
+                add(found, "W4", "R36", verify_ok[0], 1, "soft",
+                    "验证节里已验证排在失败或未验证前面。失败和阻塞排最前。")
+            verify_ok = verify_bad = None
+        if m_layer:
+            layer, section, pending_tip = new_layer, None, None
+        elif m_skip or m_done:
+            section, pending_tip = new_section, None
+        elif m_tip:
+            pending_tip = m_tip.group(1)
+        elif stripped and not indented:
+            pending_tip = None
+
+        # H4 一段不超过 6 句。列表、表格、标题与节标记结束一段。
+        if not off(args.disable, "H4", "R13"):
+            para_break = (m_layer or m_tip or m_done or m_skip or HEADING.match(raw)
+                          or is_table or STEP_HEAD.match(raw) or stripped.startswith(("-", "*", "+")))
+            if para_break:
+                para_count = 0
+                para_fired = False
+            else:
+                para_count += len(sentences(s))
+                if para_count > 6 and not para_fired:
+                    add(found, "H4", "R13", lineno, 1, "hard",
+                        f"一段已有 {para_count} 句（上限 6）。拆成两段。")
+                    para_fired = True
+
+        if not off(args.disable, "W3", "R38") and stripped:
+            is_numbered = bool(STEP_HEAD.match(raw))
+            is_bullet = stripped.startswith("- ")
+            is_sep = bool(SEP_ROW.match(raw))
+            is_header = is_table and not last_table_row
+            candidate = False
+            if section not in W3_SKIP_SECTIONS and not is_sep and not is_header:
+                if is_table:
+                    candidate = True
+                elif is_numbered:
+                    # 有层的层内编号按断言查；接下来层与无层上下文的编号是步骤，豁免。
+                    candidate = layer is not None and layer != "接下来"
+                elif is_bullet:
+                    candidate = (not indented and not m_tip) or (indented and not pending_tip)
+            if candidate and w3_status_word(raw) is None and not LOC_REF.search(raw):
+                add(found, "W3", "R38", lineno, 1, "soft",
+                    "断言条目没有位置引用。补一个支撑本条的真实例子，位置写 文件:行号 或 时间戳:行号。")
+
+        if section == "验证" and (is_table or stripped.startswith(("-", "*", "+"))
+                                  or STEP_HEAD.match(raw)):
+            w = w3_status_word(raw)
+            if w == "已验证" and verify_ok is None:
+                verify_ok = (lineno,)
+            elif w in W4_BAD and verify_bad is None:
+                verify_bad = (lineno,)
+        if not off(args.disable, "W5", "R4") and kind == "prose":
+            bare = QUOTED_MARK.sub("", raw)
+            bare = re.sub(r"`[^`]*`", "", bare)
+            if BARE_CODE.search(bare):
+                add(found, "W5", "R4", lineno, 1, "soft",
+                    "代码或路径记号没写在反引号内。补反引号，保持原样。")
+
+        last_table_row = is_table
+
         if HEADING.match(raw) or TABLE_ROW.match(raw):
             continue
 
@@ -287,6 +408,10 @@ def check(text, rules, args):
             elif not re.match(r"^\s*(?:>\s*)?\*\*.+\*\*\s*$", raw):
                 add(found, "S1", "R18", first[0], 1, "hard",
                     "首句没有按模板加粗。整句包进 **，像模板首句那样。")
+
+    if section == "验证" and verify_ok and verify_bad and verify_ok[0] < verify_bad[0]:
+        add(found, "W4", "R36", verify_ok[0], 1, "soft",
+            "验证节里已验证排在失败或未验证前面。失败和阻塞排最前。")
 
     found.sort(key=lambda f: (f["line"], f["col"], f["id"]))
     stats = {"checked_lines": len(checked_lines), "code_lines_skipped": skipped_code_lines,

@@ -15,7 +15,7 @@
   3. 能交给检查脚本回放的规则，回放一遍：差必须命中，好必须不命中。
   4. 加粗一致性：模板占位行、R18 正文、R18 引用的仓库样本行，三处都要整句加粗，缺一处就报。
 
-第 3 条只覆盖词表类规则（R26 R27 R28 R29 R33）和形状类检查（R7 R31 R35 R18）。
+第 3 条只覆盖词表类规则（R26 R27 R28 R29 R33）和形状类检查（R7 R31 R35 R18 R38）。
 其余规则靠人判，脚本只保证原文真的在那里。
 
 退出码：0 通过，1 有违规，2 数据或路径错误。
@@ -162,7 +162,7 @@ def replay(rid: str, quote: str, want_hit: bool) -> str:
     """把例子回放给检查脚本。返回 ok / miss / skip。"""
     if ELLIPSIS in quote:
         return "skip"
-    code = {"R7": "H1", "R31": "H2", "R35": "H3", "R18": "S1"}.get(rid)
+    code = {"R7": "H1", "R31": "H2", "R35": "H3", "R18": "S1", "R38": "W3"}.get(rid)
     rules = [] if code else [r for r in checker.load_rules(checker.WORDLIST)
                              if r["rule"] == rid]
     if not code and not rules:
